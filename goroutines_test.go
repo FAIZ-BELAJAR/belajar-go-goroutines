@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -545,6 +546,143 @@ func TestSyncMap(t *testing.T) {
 	time.Sleep(3 * time.Second)
 	data.Range(func(key, val interface{}) bool {
 		fmt.Println(key, ":", val)
+
 		return true
 	})
 }
+
+// sync.Cond
+// Cond adalah implementasi locking berbasis kondisi
+// Cond membutuhkan Locker (bisa menggunakan Mutex atau RWMutex) untuk implementasi locking nya, namun berbeda dengan Locker biasanya, di Cond terdapat function Wait() untuk menunggu apakah perlu menunggu atau tidak
+// Function Signal() bisa digunakan untuk memberi tahu sebuah goroutine agar tidak perlu menunggu lagi, sedangkan function Broadcast() digunakan untuk memberi tahu semua goroutine agar tidak perlu menunggu lagi
+// Untuk membuat Cond, kit bisa menggunakan function sync.NewCond(Locker)
+
+func TestCond(t *testing.T) {
+	cond := sync.NewCond(&sync.Mutex{})
+	var group = &sync.WaitGroup{}
+
+	WaitCondition := func(val int) {
+		cond.L.Lock()
+		cond.Wait()
+		fmt.Println("Done", val)
+		cond.L.Unlock()
+		group.Done()
+
+	}
+
+	for i := 0; i < 10; i++ {
+		group.Add(1)
+		go WaitCondition(i)
+	}
+
+	go func() {
+		for i := 0; i < 10; i++ {
+			time.Sleep(1 * time.Second)
+			cond.Signal()
+		}
+	}()
+
+	group.Wait()
+}
+
+// Atomic
+
+// Go lang memiliki package yang bermana sync/Atomic
+// Atomic merupakan package yang digunakan untuk menggunakan data primitive secara aman pada proses conccurent
+// Contohnya sebelumnya kia terlah menggunakan Mutex untuk melakukan locking ketika ingin menaikan angka counter. Hal ini sebenernya bisa digunakan menggunaman Atomic package
+// Ada banyak sekali function di atomic package, kita bisa eksplore sendiri di halaman dokumentasinya
+// https://golang.org/pkg/sync/atomic/
+
+func TestAtomic(t *testing.T) {
+	var group sync.WaitGroup
+	var angka int32 = 0
+
+	for i := 0; i <= 100; i++ {
+		go func() {
+			group.Add(1)
+			defer group.Done()
+			for j := 1; j <= 100; j++ {
+				atomic.AddInt32(&angka, 1)
+			}
+		}()
+	}
+
+	group.Wait()
+	fmt.Println("Angka terakhir: ", angka)
+}
+
+// Timer
+// Timer adalah representasi satu kejadian
+// Ketika waktu timer sudah expore, maka event akan dikirim ke dalam channel
+// Untuk membuat Timer kita bisa menggunakan time.NewTimer(duration)
+
+func TestTimer(t *testing.T) {
+	timer := time.NewTimer(5 * time.Second)
+	fmt.Println(time.Now())
+
+	time := <-timer.C
+	fmt.Println(time)
+}
+
+// time.After
+// Kadang kita hanya butuh channel saja, tidak butuh data timer nya
+// Untuk melakukan hal itu kita bisa menggunakan funciton time.After(duration)
+
+func TestTimeAfter(t *testing.T) {
+	channel := time.After(2 * time.Second)
+	fmt.Println(time.Now())
+
+	_ = <-channel
+	fmt.Println(time.Now())
+}
+
+// time.AfterFunc()
+// Kadang ada kebutuhan kita ingin menjalankan sebuah function dengan delay waktu tertentu
+// Kita bisa memanfaatkan Timer dengan menggunakan function time.AfterFunc()
+// Kita tidak perlu langi menggunakan channel nya, cukup kirimkan function yang akan dianggil ketika Timer mengirim kejadian nya
+
+func TestAfterFunc(t *testing.T) {
+	group := sync.WaitGroup{}
+	group.Add(1)
+
+	fmt.Println(time.Now())
+
+	time.AfterFunc(3*time.Second, func() {
+		fmt.Println(time.Now())
+		group.Done()
+	})
+
+	group.Wait()
+}
+
+// time.Ticker()
+// Ticker adalah representasi kejadian yang berulang
+// Ketika waktu ticker sudah expire, maka event akan dikirim ke dalam channel
+// Untuk membuat ticker, kita bisa menggunakan time.NewTicker(duration)
+// untuk menghentikan ticker, kita bisa menggunakan Ticker.Stop()
+
+func TestTicker(t *testing.T) {
+	ticker := time.NewTicker(2 * time.Second)
+
+	for tick := range ticker.C {
+		fmt.Println(tick)
+	}
+}
+
+// Kadang kita tidak butuh dataTicker nya, kita hanya butuh channel nya saja
+// Jika demikian, kita bisa menggunakan function timer.Tick(duration), function ini tidak akan mengembalikan Ticker, hanya mengembalikan channel timer nya saja
+
+func TestTick(t *testing.T) {
+	tick := time.Tick(2 * time.Second)
+
+	for _ = range tick {
+		fmt.Println(time.Now())
+	}
+}
+
+// GOMAXPROCS
+// Sebelumnya diawal, kita sudah bahas bahwa goroutine itu sebenernya dijalankan di dalam Thread
+// Pertanyaan nya, seberapa banyak Thread yang ada di Go Lang ketika aplikasi kita berjalan?
+// Untuk mengetahui berapa banyak jumlah thread, kita bisa menggunakan GOMAXPROCS, yaitu sebuah function di package runtime yang bisa kita gunakan untuk mengubah jumlah thread atau mengambil jumlah thread yang kita mau
+// Secara default, jumlah thread di Go Lang itu sebanyak jumlah core CPU di komputer kita
+// Kita juga bisa melihat berapa jumlah CPU kita dengan menggunakan function runtime.NumCpu()
