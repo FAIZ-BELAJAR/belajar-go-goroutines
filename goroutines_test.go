@@ -353,7 +353,7 @@ func TestReadWriteMutex(t *testing.T) {
 }
 
 // DeadLock
-// Hati Hati saat kita membuat alikasi yang parallel atau conccurent, masalah yang sering kita hadapi adalah deadlock
+// Hati Hati saat kita membuat aplikasi yang parallel atau conccurent, masalah yang sering kita hadapi adalah deadlock
 // Deadlock adalah keadaan dimana sebuah proses goroutine saling menunggu lock sehingga tidak ada satupun goroutine yang bisa jalan
 // Sekarang kita coba simulasikan proses deadlock
 
@@ -378,7 +378,7 @@ func (u *UserBalance) Change(amount int) {
 func Transfer(u1, u2 *UserBalance, amount int) {
 	u1.Lock()
 	fmt.Println("Lock", u1.Name)
-	u1.Change(amount)
+	u1.Change(-amount)
 
 	time.Sleep(1 * time.Second)
 
@@ -394,21 +394,157 @@ func Transfer(u1, u2 *UserBalance, amount int) {
 
 func TestDeadlock(t *testing.T) {
 	user1 := UserBalance{
-		Name: "Faiz",
+		Name:    "Faiz",
+		Balance: 1000000,
 	}
 
 	user2 := UserBalance{
-		Name: "Juki",
+		Name:    "Juki",
+		Balance: 1000000,
 	}
 
 	go Transfer(&user1, &user2, 10000)
 	go Transfer(&user2, &user1, 10000)
 
-	fmt.Println("User ", user1.Name, "Balance ", user1.Balance)
-	fmt.Println("User ", user2.Name, "Balance ", user2.Balance)
-
 	time.Sleep(10 * time.Second)
 
 	fmt.Println("User ", user1.Name, "Balance ", user1.Balance)
 	fmt.Println("User ", user2.Name, "Balance ", user2.Balance)
+}
+
+func TestD(t *testing.T) {
+	var data chan string = make(chan string)
+
+	go func(d chan string) {
+		fmt.Println("Anjay", <-data)
+	}(data)
+	data <- "MAKAN"
+
+	close(data)
+}
+
+// Jadi begini channel harus diterima oleh thread / proses asinkron lain, ketika kita membuat unbuffered channel maka
+// akan terus menunggu samapai proses asinkron lain mengambil datanya
+
+// sync.WaitGroup
+// WaitGroup adalah fitur yang bisa digunakan untuk menunggu sebuah proses selesai dilakukan
+// Hal ini kadang diperlukan, misal ktia ingin menjalankan beberapa proses menggunakan goroutine,
+// tapi kita ingin semua proses selesai terlebih dahulu sebelum aplikasi kita selesai
+// Kasus seperti ini bisa menggunakan WaitGroup
+// Untuk menandai bahwa ada proses goroutine, kita bisa menggunakan method Add(int), setelah proses goroutine selesai, kita bisa gunakan method Done()
+// Untuk menunggu semua proses selesai, kita bisa menggunakan method Wait()
+
+func RunAsynchronous(group *sync.WaitGroup, count int, d chan<- string) {
+	defer group.Done()
+
+	group.Add(1)
+
+	d <- "Halo Ke: " + strconv.Itoa(count) + "dari channel"
+	time.Sleep(1 * time.Second)
+}
+
+func TestWaitGroup(t *testing.T) {
+	w := sync.WaitGroup{}
+	var data chan string = make(chan string)
+	go func(d chan string) {
+		for message := range d {
+			fmt.Println(message)
+		}
+	}(data)
+
+	for i := 0; i < 10; i++ {
+		go RunAsynchronous(&w, i, data)
+	}
+
+	w.Wait()
+	fmt.Println("Selesai")
+}
+
+// sync.Once
+// Once adalah fitur di golang yang bisa kita gunakan untuk memastikan bahwa sebuah function di eksekusi hanya sekali
+// Jadi berapa banyak pun goroutine yang mengakses, bisa dipastikan bahwa goroutine yang pertama yang bisa mengeksekusi function nya
+// Goroutine yang lain akan di hiraukan, artinya function tidak akan dieksekusi Lagi
+
+var counter = 0
+
+func TestOnce(t *testing.T) {
+	var once sync.Once
+	var group sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		go func() {
+			group.Add(1)
+			once.Do(func() {
+				counter++
+			})
+			group.Done()
+		}()
+	}
+
+	group.Wait()
+	fmt.Print("Counter: ", counter)
+}
+
+// sync.Pool
+// Pool adalah implementasi design pattern bernama object pool pattern
+// Sederhananya, design pattern Pool ini digunakan untuk menyimpan data, selanjutnya untuk menggunakan datanya, kita bisa mengambil data dari pool, dan setelah selesai menggunakan datanya, kita bisa menyimpan kembali ke pool nya
+// Implementasi Pool di Go lang ini sudah aman dari problem race condition
+// Biasanya pool ini sering digunakan di kasus seperti koneksi ke database
+// Pada defaultnya jika data kosong di TestPool maka akan diberikan value <nil>, kita bisa mengubah nya
+// dengan cara menambahkan properti New pada object pool dengan fungsi yang meretrun interface kosong
+// kita bebas boleh mengisi datanya dengan apapun
+
+func TestPool(t *testing.T) {
+	var pool sync.Pool = sync.Pool{
+		New: func() interface{} {
+			return "kosong"
+		},
+	}
+
+	pool.Put("Faiz")
+	pool.Put("Anancuy")
+	pool.Put("Mantap")
+
+	for i := 0; i < 10; i++ {
+		go func() {
+			data := pool.Get()
+			switch v := any(data).(type) {
+			case string:
+				if v == "kosong" {
+					fmt.Println("Kosong cuk")
+				}
+			}
+			fmt.Println(data)
+			time.Sleep(1)
+			pool.Put(data)
+		}()
+	}
+
+	time.Sleep(5 * time.Second)
+}
+
+// sync.Map
+// Go lang memiliki sebuah struct bernama sync.Map
+// Map ini miripGo Lang map, namun yang membedakan, Map ini aman untuk menggunakan conccurent menggunakan goroutine
+// Ada beberapa method yan bisa kita gunakan di Map:
+// Store(key): untuk menyimpan data ke dalam Map
+// Load(key): untuk mengambil data dari Map menggunakan key
+// Delete(key): untuk menghapus data di Map menggunaan key
+// Range(function(key, value)) digunakan untuk melakukan iterasi seluruh data di Map
+
+func TestSyncMap(t *testing.T) {
+	var data sync.Map
+	var addToMap = func(val int) {
+		data.Store(val, val)
+	}
+
+	for i := 0; i < 10; i++ {
+		go addToMap(i)
+	}
+
+	time.Sleep(3 * time.Second)
+	data.Range(func(key, val interface{}) bool {
+		fmt.Println(key, ":", val)
+		return true
+	})
 }
